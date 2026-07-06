@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import Modal from "@/components/ui/Modal";
 import { CHART_COLORS } from "@/lib/theme";
+import MonthSwitcher from "@/components/MonthSwitcher";
 
 const GROUP_LABELS: Record<CategoryGroup, { label: string; hint: string; color: string; pct: number }> = {
   needs: { label: "Needs", hint: "Essentials: rent, groceries, bills", color: CHART_COLORS.needs, pct: 50 },
@@ -37,10 +38,10 @@ export default function BudgetPage() {
     updateCategory,
     removeCategory,
     applyAutoBudget,
+    selectedMonth: monthKey,
     hydrated,
   } = useStore();
   const symbol = currencySymbol(state.currency);
-  const monthKey = currentMonthKey();
   const [newCatName, setNewCatName] = useState("");
   const [newCatGroup, setNewCatGroup] = useState<CategoryGroup>("needs");
   const [incomeInput, setIncomeInput] = useState(String(state.monthlyIncome || ""));
@@ -50,8 +51,28 @@ export default function BudgetPage() {
   if (!hydrated) return <div className="skeleton h-64" />;
 
   const assigned = totalAssigned(state.categories);
-  const leftToAssignRaw = state.monthlyIncome - assigned;
-  const leftToAssign = Math.abs(leftToAssignRaw) < 1 ? 0 : leftToAssignRaw;
+  let leftToAssign = 0;
+  let overspendPrev = 0;
+  
+  if (state.budgetMethod === "zero-based") {
+    const cashAssets = state.assets.filter((a) => a.type === "cash" || a.type === "investment").reduce((s, a) => s + a.value, 0);
+    const cashAvailable = cashAssets > 0 ? cashAssets : state.monthlyIncome;
+    
+    const now = new Date();
+    const prevMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const prevMonthKey = currentMonthKey(prevMonthDate);
+    const prevSpentMap = spentByCategory(state.transactions, prevMonthKey);
+    overspendPrev = state.categories.reduce((sum, c) => {
+      const spentInPrev = prevSpentMap.get(c.id) || 0;
+      return sum + Math.max(0, spentInPrev - (c.assigned || 0));
+    }, 0);
+
+    const rta = cashAvailable - assigned - overspendPrev;
+    leftToAssign = Math.abs(rta) < 1 ? 0 : rta;
+  } else {
+    const leftToAssignRaw = state.monthlyIncome - assigned;
+    leftToAssign = Math.abs(leftToAssignRaw) < 1 ? 0 : leftToAssignRaw;
+  }
   const gTotals = groupTotals(state.categories);
   const spentMap = spentByCategory(state.transactions, monthKey);
 
@@ -93,7 +114,8 @@ export default function BudgetPage() {
           <h1 className="text-xl sm:text-2xl font-bold">Budget</h1>
           <p className="text-[var(--muted)] text-sm">Give every {symbol} a job.</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-3">
+          <MonthSwitcher />
           {state.budgetMethod === "50-30-20" && (
             <button
               className="btn-secondary text-sm"
@@ -144,11 +166,14 @@ export default function BudgetPage() {
           >
             {formatCurrency(leftToAssign, symbol)}
           </div>
-          {state.budgetMethod === "zero-based" && leftToAssign !== 0 && (
+          {state.budgetMethod === "zero-based" && (
             <p className="text-[11px] text-[var(--muted)] mt-0.5">
+              {overspendPrev > 0 && `Prev Month Overspent: ${formatCurrency(overspendPrev, symbol)} (Deducted) · `}
               {leftToAssign > 0
                 ? "Assign the rest so every rupee has a job."
-                : "You've over-assigned — adjust a category."}
+                : leftToAssign < 0
+                ? "You've over-assigned — adjust a category."
+                : "Perfect! Every rupee has a job."}
             </p>
           )}
         </div>

@@ -25,21 +25,42 @@ export const HOLIDAY_COUNTRIES = [
   { code: "JP", label: "Japan" },
 ];
 
+export const FALLBACK_IN_HOLIDAYS: Holiday[] = [
+  { date: "2026-01-26", localName: "Republic Day", name: "Republic Day", countryCode: "IN" },
+  { date: "2026-03-03", localName: "Maha Shivaratri", name: "Maha Shivaratri", countryCode: "IN" },
+  { date: "2026-03-17", localName: "Holi", name: "Holi", countryCode: "IN" },
+  { date: "2026-04-02", localName: "Good Friday", name: "Good Friday", countryCode: "IN" },
+  { date: "2026-04-14", localName: "Dr. Ambedkar Jayanti", name: "Dr. Ambedkar Jayanti", countryCode: "IN" },
+  { date: "2026-05-01", localName: "May Day / Maharashtra Day", name: "May Day", countryCode: "IN" },
+  { date: "2026-08-15", localName: "Independence Day", name: "Independence Day", countryCode: "IN" },
+  { date: "2026-08-27", localName: "Raksha Bandhan", name: "Raksha Bandhan", countryCode: "IN" },
+  { date: "2026-09-04", localName: "Krishna Janmashtami", name: "Krishna Janmashtami", countryCode: "IN" },
+  { date: "2026-10-02", localName: "Mahatma Gandhi Jayanti", name: "Mahatma Gandhi Jayanti", countryCode: "IN" },
+  { date: "2026-10-20", localName: "Dussehra / Vijayadashami", name: "Dussehra", countryCode: "IN" },
+  { date: "2026-11-08", localName: "Diwali / Deepavali", name: "Diwali", countryCode: "IN" },
+  { date: "2026-12-25", localName: "Christmas Day", name: "Christmas Day", countryCode: "IN" },
+];
+
 export async function fetchUpcomingHolidays(countryCode: string): Promise<Holiday[] | null> {
+  const normCountry = (countryCode || "IN").toUpperCase();
   try {
-    const cacheKey = `${CACHE_KEY}:${countryCode}`;
+    const cacheKey = `${CACHE_KEY}:${normCountry}`;
     const cached = readCache(cacheKey);
     if (cached) return cached;
 
-    const res = await fetch(`https://date.nager.at/api/v3/NextPublicHolidays/${countryCode}`, {
+    const res = await fetch(`/api/holidays?country=${normCountry}`, {
       signal: AbortSignal.timeout(6000),
     });
-    if (!res.ok) return null;
+    if (!res.ok) throw new Error("API call failed");
     const data = (await res.json()) as Holiday[];
     writeCache(cacheKey, data);
     return data;
   } catch {
-    return null;
+    // If offline or API fails, return local fallback for India or an empty list
+    if (normCountry === "IN") {
+      return FALLBACK_IN_HOLIDAYS;
+    }
+    return [];
   }
 }
 

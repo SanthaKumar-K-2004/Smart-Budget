@@ -17,6 +17,7 @@ import {
 import { INITIAL_STATE } from "./defaults";
 import { safeGetItem, safeSetItem } from "./storage";
 import { currentMonthKey, shouldPostRecurring } from "./calc";
+import { encryptData, decryptData } from "./encryption";
 import { toast } from "sonner";
 
 const STORAGE_KEY = "smartbudget:v2";
@@ -26,6 +27,13 @@ interface StoreApi {
   state: AppState;
   hydrated: boolean;
   persistOk: boolean;
+  vaultLocked: boolean;
+  hasPassphrase: boolean;
+  selectedMonth: string;
+  setSelectedMonth: (m: string) => void;
+  unlockVault: (pass: string) => Promise<boolean>;
+  setupVault: (pass: string | null) => Promise<void>;
+  lockVault: () => void;
   setMonthlyIncome: (n: number) => void;
   setCurrency: (c: string) => void;
   setBudgetMethod: (m: BudgetMethod) => void;
@@ -95,6 +103,9 @@ function loadState(): AppState {
   try {
     const raw = safeGetItem(STORAGE_KEY) ?? safeGetItem(LEGACY_KEY);
     if (!raw) return INITIAL_STATE;
+    if (raw.includes('"encrypted":true')) {
+      return INITIAL_STATE; // Handled separately via unlockVault
+    }
     return sanitizeState(JSON.parse(raw));
   } catch {
     return INITIAL_STATE;
@@ -106,22 +117,48 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [hydrated, setHydrated] = useState(false);
   const [persistOk, setPersistOk] = useState(true);
 
-  // One-time load from localStorage after mount. This must run in an effect
-  // (not during render) because localStorage is a browser-only external
-  // system and reading it during SSR would cause a hydration mismatch.
+  // Vault/Encryption state
+  const [vaultLocked, setVaultLocked] = useState(false);
+  const [passphrase, setPassphrase] = useState<string | null>(null);
+  const [hasPassphrase, setHasPassphrase] = useState(false);
+  const [selectedMonth, setSelectedMonth] = useState(currentMonthKey());
+
+  // Initial load and auto-unlock check
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setState(loadState());
-    setHydrated(true);
+    if (typeof window === "undefined") return;
+    const sessionPass = sessionStorage.getItem("smartbudget:passphrase");
+    const raw = safeGetItem(STORAGE_KEY) ?? safeGetItem(LEGACY_KEY);
+    
+    if (raw && raw.includes('"encrypted":true')) {
+      setHasPassphrase(true);
+      if (sessionPass) {
+        decryptData(raw, sessionPass)
+          .then((decrypted) => {
+            setState(sanitizeState(JSON.parse(decrypted)));
+            setPassphrase(sessionPass);
+            setVaultLocked(false);
+            setHydrated(true);
+          })
+          .catch(() => {
+            // Decryption failed (e.g. stale session pass)
+            setVaultLocked(true);
+            setHydrated(true);
+          });
+      } else {
+        setVaultLocked(true);
+        setHydrated(true);
+      }
+    } else {
+      setHasPassphrase(false);
+      setState(loadState());
+      setHydrated(true);
+    }
   }, []);
 
-  // Auto-post recurring transactions once per month, per item. This
-  // synchronizes React state with the "current date" external system, so it
-  // belongs in an effect rather than during render.
+  // Auto-post recurring transactions once per month, per item.
   useEffect(() => {
-    if (!hydrated) return;
+    if (!hydrated || vaultLocked) return;
     const monthKey = currentMonthKey();
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setState((s) => {
       const due = s.recurring.filter((r) => r.active && shouldPostRecurring(r.lastPostedMonth, monthKey));
       if (due.length === 0) return s;
@@ -136,20 +173,106 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       const updatedRecurring = s.recurring.map((r) =>
         due.find((d) => d.id === r.id) ? { ...r, lastPostedMonth: monthKey } : r
       );
-      if (due.length > 0) {
-        setTimeout(() => toast.success(`Auto-posted ${due.length} recurring transaction${due.length > 1 ? "s" : ""} for this month.`), 300);
-      }
+      setTimeout(() => toast.success(`Auto-posted ${due.length} recurring item(s).`), 300);
       return { ...s, transactions: [...newTx, ...s.transactions], recurring: updatedRecurring };
     });
-  }, [hydrated]);
+  }, [hydrated, vaultLocked]);
 
-  // Persist to localStorage (an external system) whenever state changes.
+  // Persist state to localStorage (encrypted or plain text)
   useEffect(() => {
-    if (!hydrated) return;
-    const ok = safeSetItem(STORAGE_KEY, JSON.stringify(state));
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setPersistOk(ok);
-  }, [state, hydrated]);
+    if (!hydrated || vaultLocked) return;
+
+    const save = async () => {
+      const json = JSON.stringify(state);
+      if (passphrase) {
+        try {
+          const encrypted = await encryptData(json, passphrase);
+          const ok = safeSetItem(STORAGE_KEY, encrypted);
+          setPersistOk(ok);
+        } catch (e) {
+          console.error("Failed to encrypt state on save:", e);
+          setPersistOk(false);
+        }
+      } else {
+        const ok = safeSetItem(STORAGE_KEY, json);
+        setPersistOk(ok);
+      }
+    };
+
+    save();
+  }, [state, hydrated, passphrase, vaultLocked]);
+
+  // Auto-lock vault on 5 minutes inactivity
+  useEffect(() => {
+    if (!passphrase || typeof window === "undefined") return;
+
+    let timer: NodeJS.Timeout;
+
+    const resetTimer = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        setVaultLocked(true);
+        setPassphrase(null);
+        sessionStorage.removeItem("smartbudget:passphrase");
+        toast.info("Vault auto-locked due to 5 min inactivity.");
+      }, 5 * 60 * 1000);
+    };
+
+    const events = ["mousemove", "keydown", "mousedown", "touchstart"];
+    events.forEach((evt) => window.addEventListener(evt, resetTimer));
+
+    resetTimer();
+
+    return () => {
+      clearTimeout(timer);
+      events.forEach((evt) => window.removeEventListener(evt, resetTimer));
+    };
+  }, [passphrase]);
+
+  const unlockVault = async (pass: string): Promise<boolean> => {
+    try {
+      const raw = safeGetItem(STORAGE_KEY) ?? safeGetItem(LEGACY_KEY);
+      if (!raw) return false;
+      const decrypted = await decryptData(raw, pass);
+      const parsed = sanitizeState(JSON.parse(decrypted));
+      setState(parsed);
+      setPassphrase(pass);
+      setVaultLocked(false);
+      sessionStorage.setItem("smartbudget:passphrase", pass);
+      toast.success("Vault unlocked successfully!");
+      return true;
+    } catch {
+      toast.error("Incorrect vault passphrase.");
+      return false;
+    }
+  };
+
+  const setupVault = async (pass: string | null) => {
+    if (pass === null) {
+      setPassphrase(null);
+      sessionStorage.removeItem("smartbudget:passphrase");
+      setHasPassphrase(false);
+      // Next auto-save will write plain text
+    } else {
+      setPassphrase(pass);
+      sessionStorage.setItem("smartbudget:passphrase", pass);
+      setHasPassphrase(true);
+      try {
+        const json = JSON.stringify(state);
+        const encrypted = await encryptData(json, pass);
+        safeSetItem(STORAGE_KEY, encrypted);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+  };
+
+  const lockVault = useCallback(() => {
+    setVaultLocked(true);
+    setPassphrase(null);
+    sessionStorage.removeItem("smartbudget:passphrase");
+    toast.info("Vault locked manually.");
+  }, []);
 
   const setMonthlyIncome = useCallback((n: number) => setState((s) => ({ ...s, monthlyIncome: n })), []);
   const setCurrency = useCallback((c: string) => setState((s) => ({ ...s, currency: c })), []);
@@ -295,6 +418,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       state,
       hydrated,
       persistOk,
+      vaultLocked,
+      hasPassphrase,
+      unlockVault,
+      setupVault,
+      lockVault,
       setMonthlyIncome,
       setCurrency,
       setBudgetMethod,
@@ -323,6 +451,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       updateRecurring,
       removeRecurring,
       setHolidayCountry,
+      selectedMonth,
+      setSelectedMonth,
       resetAll,
       exportData,
       importData,
@@ -332,6 +462,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       state,
       hydrated,
       persistOk,
+      vaultLocked,
+      hasPassphrase,
+      unlockVault,
+      setupVault,
+      lockVault,
       setMonthlyIncome,
       setCurrency,
       setBudgetMethod,
@@ -360,6 +495,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       updateRecurring,
       removeRecurring,
       setHolidayCountry,
+      selectedMonth,
+      setSelectedMonth,
       resetAll,
       exportData,
       importData,

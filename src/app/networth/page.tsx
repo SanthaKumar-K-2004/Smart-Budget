@@ -7,7 +7,7 @@ import { currencySymbol } from "@/lib/defaults";
 import { formatCurrency, totalAssets, totalDebts, netWorth } from "@/lib/calc";
 import { ASSET_TYPE_ICON } from "@/lib/icons";
 import { AssetType } from "@/lib/types";
-import { Plus, Trash2, Scale, TrendingUp, TrendingDown, RefreshCw } from "lucide-react";
+import { Plus, Trash2, Scale, TrendingUp, TrendingDown, RefreshCw, AlertTriangle, Tag } from "lucide-react";
 import { toast } from "sonner";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import AnimatedNumber from "@/components/ui/AnimatedNumber";
@@ -29,6 +29,10 @@ const ASSET_TYPES: { value: AssetType; label: string }[] = [
   { value: "other", label: "Other" },
 ];
 
+function todayIso() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 export default function NetWorthPage() {
   const { state, addAsset, updateAsset, removeAsset, addDebt, removeDebt, hydrated } = useStore();
   const symbol = currencySymbol(state.currency);
@@ -38,7 +42,10 @@ export default function NetWorthPage() {
   const [assetType, setAssetType] = useState<AssetType>("cash");
   const [cryptoCoinId, setCryptoCoinId] = useState(POPULAR_COINS[0].id);
   const [cryptoQty, setCryptoQty] = useState("");
+  const [cryptoCostBasis, setCryptoCostBasis] = useState("");
+  const [cryptoAcquiredDate, setCryptoAcquiredDate] = useState(todayIso());
   const [refreshingCrypto, setRefreshingCrypto] = useState(false);
+  const [indiaCryptoTax, setIndiaCryptoTax] = useState(false);
 
   const [debtName, setDebtName] = useState("");
   const [debtBalance, setDebtBalance] = useState("");
@@ -67,10 +74,20 @@ export default function NetWorthPage() {
         toast.error("Enter a valid quantity held.");
         return;
       }
+      const costBasisVal = parseFloat(cryptoCostBasis) || 0;
       const coin = POPULAR_COINS.find((c) => c.id === cryptoCoinId);
-      addAsset({ name: coin?.name || cryptoCoinId, type: "crypto", value: 0, coinId: cryptoCoinId, quantity: qty });
-      toast.success(`Added ${coin?.name}. Click "Refresh Prices" to fetch its live value.`);
+      addAsset({
+        name: coin?.name || cryptoCoinId,
+        type: "crypto",
+        value: 0, // Will be computed live when refreshed, or defaults to 0 initially
+        coinId: cryptoCoinId,
+        quantity: qty,
+        costBasis: costBasisVal > 0 ? costBasisVal : undefined,
+        acquiredDate: cryptoAcquiredDate || undefined,
+      });
+      toast.success(`Added ${coin?.name || cryptoCoinId}. Click "Refresh Prices" below to calculate live value.`);
       setCryptoQty("");
+      setCryptoCostBasis("");
       return;
     }
     const v = parseFloat(assetValue);
@@ -105,7 +122,7 @@ export default function NetWorthPage() {
         updated++;
       }
     }
-    toast.success(`Updated ${updated} crypto asset${updated !== 1 ? "s" : ""} with live prices.`);
+    toast.success(`Updated ${updated} crypto asset(s) with live prices.`);
   };
 
   const handleAddDebt = () => {
@@ -166,7 +183,7 @@ export default function NetWorthPage() {
       <CryptoTracker currency={state.currency} symbol={symbol} />
 
       {assetsByType.length > 0 && (
-        <div className="card p-5">
+        <div className="card p-5 animate-fade-in">
           <h2 className="font-semibold mb-2">Asset Breakdown</h2>
           <div className="flex flex-col sm:flex-row items-center gap-4">
             <AssetBreakdownPie data={assetsByType} symbol={symbol} />
@@ -183,16 +200,29 @@ export default function NetWorthPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 animate-fade-in">
         {/* Assets */}
         <div className="card p-5">
           <div className="flex items-center justify-between mb-3">
             <h2 className="font-semibold">Assets</h2>
-            {cryptoAssets.length > 0 && (
-              <button className="btn-secondary text-xs px-3 py-1.5 min-h-0" onClick={handleRefreshCrypto} disabled={refreshingCrypto}>
-                <RefreshCw size={12} className={refreshingCrypto ? "animate-spin" : ""} /> Refresh Prices
-              </button>
-            )}
+            <div className="flex items-center gap-2">
+              {cryptoAssets.length > 0 && (
+                <>
+                  <label className="text-[10px] text-[var(--muted)] flex items-center gap-1.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={indiaCryptoTax}
+                      onChange={(e) => setIndiaCryptoTax(e.target.checked)}
+                      className="rounded accent-[var(--brand)]"
+                    />
+                    India 30% Tax Warning
+                  </label>
+                  <button className="btn-secondary text-xs px-2.5 py-1.5 min-h-0 flex items-center gap-1" onClick={handleRefreshCrypto} disabled={refreshingCrypto}>
+                    <RefreshCw size={12} className={refreshingCrypto ? "animate-spin" : ""} /> Refresh
+                  </button>
+                </>
+              )}
+            </div>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-3">
             <select className="input sm:col-span-2" value={assetType} onChange={(e) => setAssetType(e.target.value as AssetType)}>
@@ -208,6 +238,8 @@ export default function NetWorthPage() {
                   ))}
                 </select>
                 <input type="number" className="input" placeholder="Quantity held" value={cryptoQty} onChange={(e) => setCryptoQty(e.target.value)} />
+                <input type="number" className="input" placeholder={`Cost Basis (${symbol}/coin)`} value={cryptoCostBasis} onChange={(e) => setCryptoCostBasis(e.target.value)} />
+                <input type="date" className="input sm:col-span-2" placeholder="Acquired Date" value={cryptoAcquiredDate} onChange={(e) => setCryptoAcquiredDate(e.target.value)} />
               </>
             ) : (
               <>
@@ -219,29 +251,76 @@ export default function NetWorthPage() {
           <button className="btn-primary w-full justify-center mb-3" onClick={handleAddAsset}>
             <Plus size={16} /> Add Asset
           </button>
+          
           <div className="divide-y divide-[var(--border)]">
             {state.assets.length === 0 && <p className="text-sm text-[var(--muted)] text-center py-4">No assets added yet.</p>}
             {state.assets.map((a) => {
               const Icon = ASSET_TYPE_ICON[a.type];
+              
+              // Calculate Crypto P&L
+              let pnlText = "";
+              let pnlValue = 0;
+              let isProfit = false;
+              let taxWarning = 0;
+
+              if (a.type === "crypto" && a.quantity && a.costBasis) {
+                const costVal = a.costBasis * a.quantity;
+                pnlValue = a.value - costVal;
+                isProfit = pnlValue > 0;
+                const pnlPct = costVal > 0 ? (pnlValue / costVal) * 100 : 0;
+                pnlText = `P&L: ${isProfit ? "+" : ""}${formatCurrency(pnlValue, symbol)} (${isProfit ? "+" : ""}${pnlPct.toFixed(1)}%)`;
+                
+                if (isProfit && indiaCryptoTax) {
+                  taxWarning = pnlValue * 0.3;
+                }
+              }
+
               return (
-                <div key={a.id} className="flex items-center justify-between py-2.5">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="w-8 h-8 rounded-full bg-[color-mix(in_srgb,var(--muted)_10%,transparent)] flex items-center justify-center text-[var(--muted)] shrink-0">
-                      <Icon size={15} />
-                    </span>
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium truncate">{a.name}</p>
-                      {a.type === "crypto" && a.quantity && (
-                        <p className="text-xs text-[var(--muted)]">{a.quantity} units</p>
-                      )}
+                <div key={a.id} className="py-2.5 space-y-1">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="w-8 h-8 rounded-full bg-[color-mix(in_srgb,var(--muted)_10%,transparent)] flex items-center justify-center text-[var(--muted)] shrink-0">
+                        <Icon size={15} />
+                      </span>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium truncate">{a.name}</p>
+                        {a.type === "crypto" && a.quantity && (
+                          <div className="text-[10px] text-[var(--muted)] flex flex-wrap gap-1.5 items-center">
+                            <span>{a.quantity} units</span>
+                            {a.costBasis && (
+                              <>
+                                <span>·</span>
+                                <span>Cost: {formatCurrency(a.costBasis, symbol)}</span>
+                              </>
+                            )}
+                            {a.acquiredDate && (
+                              <>
+                                <span>·</span>
+                                <span>Bought: {new Date(a.acquiredDate).toLocaleDateString()}</span>
+                              </>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="text-sm font-semibold">{formatCurrency(a.value, symbol)}</span>
+                      <button className="icon-btn danger" onClick={() => setDeleteAsset({ id: a.id, name: a.name })}>
+                        <Trash2 size={15} />
+                      </button>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <span className="text-sm font-semibold">{formatCurrency(a.value, symbol)}</span>
-                    <button className="icon-btn danger" onClick={() => setDeleteAsset({ id: a.id, name: a.name })}>
-                      <Trash2 size={15} />
-                    </button>
-                  </div>
+
+                  {pnlText && (
+                    <div className="flex items-center justify-between text-[10px] pl-10 font-medium">
+                      <span className={isProfit ? "text-emerald-500" : "text-red-500"}>{pnlText}</span>
+                      {taxWarning > 0 && (
+                        <span className="text-amber-500 flex items-center gap-0.5" title="India 30% flat crypto tax on profits (no offsets allowed)">
+                          <AlertTriangle size={10} /> India Tax: -{formatCurrency(taxWarning, symbol)}
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })}

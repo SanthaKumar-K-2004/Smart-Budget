@@ -92,6 +92,13 @@ export default function Onboarding() {
               <button className="btn-primary w-full" onClick={() => setStep(1)}>
                 Continue
               </button>
+              <button
+                type="button"
+                className="w-full text-center text-xs text-[var(--muted)] hover:underline mt-2"
+                onClick={() => setOnboarded(true)}
+              >
+                Skip onboarding & explore dashboard
+              </button>
             </motion.div>
           )}
 

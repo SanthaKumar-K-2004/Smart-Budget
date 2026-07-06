@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useStore } from "@/lib/store";
 import { currencySymbol } from "@/lib/defaults";
-import { formatCurrency, monthlySubscriptionCost } from "@/lib/calc";
+import { formatCurrency, monthlySubscriptionCost, detectSubscriptions } from "@/lib/calc";
 import { Plus, Trash2, Repeat } from "lucide-react";
 import { toast } from "sonner";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
@@ -22,6 +22,13 @@ export default function SubscriptionsPage() {
 
   const monthlyTotal = monthlySubscriptionCost(state.subscriptions);
   const yearlyTotal = monthlyTotal * 12;
+
+  const detected = detectSubscriptions(state.transactions, state.subscriptions);
+
+  const handleAddDetected = (d: { name: string; amount: number; cadence: "monthly" | "weekly" | "yearly" }) => {
+    addSubscription({ name: d.name, amount: d.amount, cadence: d.cadence, active: true });
+    toast.success(`Added subscription "${d.name}".`);
+  };
 
   const handleAdd = () => {
     const amt = parseFloat(amount);
@@ -58,6 +65,36 @@ export default function SubscriptionsPage() {
           <p className="text-2xl font-bold mt-1">{formatCurrency(yearlyTotal, symbol)}</p>
         </div>
       </div>
+
+      {detected.length > 0 && (
+        <div className="card p-5 border-amber-500/20 bg-amber-500/[0.02]">
+          <h2 className="font-semibold text-amber-500 mb-2 flex items-center gap-1.5">
+            <Repeat size={16} /> Likely Subscriptions Detected (Rocket Money Engine)
+          </h2>
+          <p className="text-xs text-[var(--muted)] mb-3">
+            We noticed recurring transactions with similar payees/amounts. Add them to track your true monthly recurring overhead.
+          </p>
+          <div className="space-y-2">
+            {detected.map((d) => (
+              <div key={d.name} className="flex items-center justify-between py-2 border-b border-[var(--border)] last:border-0">
+                <div>
+                  <p className="text-sm font-medium">{d.name}</p>
+                  <p className="text-xs text-[var(--muted)] capitalize">{d.cadence} payment detected</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-semibold">{formatCurrency(d.amount, symbol)}</span>
+                  <button
+                    onClick={() => handleAddDetected(d)}
+                    className="btn-primary text-xs py-1 px-3 min-h-0 bg-amber-500 text-white hover:bg-amber-600 border-none rounded-lg"
+                  >
+                    Quick Add
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="card p-5">
         <h2 className="font-semibold mb-3">Add Subscription</h2>

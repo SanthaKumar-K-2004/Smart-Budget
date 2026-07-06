@@ -23,6 +23,7 @@ import Link from "next/link";
 import { motion } from "framer-motion";
 import AnimatedNumber from "@/components/ui/AnimatedNumber";
 import HolidayWidget from "@/components/HolidayWidget";
+import MonthSwitcher from "@/components/MonthSwitcher";
 
 const AllocationPie = dynamic(() => import("@/components/charts/AllocationPie"), {
   ssr: false,
@@ -43,18 +44,22 @@ const item = {
 };
 
 export default function DashboardPage() {
-  const { state, hydrated } = useStore();
+  const { state, hydrated, selectedMonth: monthKey } = useStore();
   const symbol = currencySymbol(state.currency);
-  const monthKey = currentMonthKey();
 
-  if (!hydrated) return <DashboardSkeleton />;
-
-  const spent = totalSpent(state.transactions, monthKey);
-  const sts = safeToSpend(state.monthlyIncome, state.categories);
-  const health = budgetHealthScore(state, monthKey);
-  const gTotals = groupTotals(state.categories);
-  const subCost = monthlySubscriptionCost(state.subscriptions);
   const spentMap = spentByCategory(state.transactions, monthKey);
+  const spent = totalSpent(state.transactions, monthKey);
+  const gTotals = groupTotals(state.categories);
+
+  const sts = safeToSpend(state, monthKey);
+
+  const health = budgetHealthScore(state, monthKey);
+
+  const [year, month] = monthKey.split("-").map(Number);
+  const selectedDate = new Date(year, month - 1, 1);
+  const formattedMonth = selectedDate.toLocaleString("default", { month: "long", year: "numeric" });
+  
+  const subCost = monthlySubscriptionCost(state.subscriptions);
   const nw = netWorth(state.assets, state.debts);
 
   const pieData = [
@@ -79,12 +84,15 @@ export default function DashboardPage() {
         <div>
           <h1 className="text-xl sm:text-2xl font-bold">Dashboard</h1>
           <p className="text-[var(--muted)] text-sm">
-            Overview for {new Date().toLocaleString("default", { month: "long", year: "numeric" })}
+            Overview for {formattedMonth}
           </p>
         </div>
-        <Link href="/budget" className="btn-primary text-sm w-fit">
-          Manage Budget <ArrowRight size={14} />
-        </Link>
+        <div className="flex items-center gap-3">
+          <MonthSwitcher />
+          <Link href="/budget" className="btn-primary text-sm w-fit text-xs sm:text-sm">
+            Manage Budget <ArrowRight size={14} />
+          </Link>
+        </div>
       </motion.div>
 
       <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4 [&>*:last-child]:col-span-2 lg:[&>*:last-child]:col-span-1">
@@ -96,12 +104,12 @@ export default function DashboardPage() {
           tint={CHART_COLORS.brand}
         />
         <StatCard
-          icon={sts >= 0 ? <TrendingUp size={18} /> : <TrendingDown size={18} />}
+          icon={sts.total >= 0 ? <TrendingUp size={18} /> : <TrendingDown size={18} />}
           label="Safe to Spend"
-          value={sts}
+          value={sts.total}
           symbol={symbol}
-          tint={sts >= 0 ? CHART_COLORS.wants : CHART_COLORS.danger}
-          sub="Income minus assigned"
+          tint={sts.total >= 0 ? CHART_COLORS.wants : CHART_COLORS.danger}
+          sub="Income - MTD Spent - Bills - Savings"
         />
         <StatCard icon={<PiggyBank size={18} />} label="Spent This Month" value={spent} symbol={symbol} tint={CHART_COLORS.savings} />
         <StatCard
@@ -138,21 +146,34 @@ export default function DashboardPage() {
                 strokeWidth="3"
                 strokeLinecap="round"
                 initial={{ strokeDasharray: "0, 100" }}
-                animate={{ strokeDasharray: `${health.score}, 100` }}
+                animate={{ strokeDasharray: `${health.score !== null ? health.score : 0}, 100` }}
                 transition={{ duration: 0.7, ease: "easeOut" }}
               />
             </svg>
             <div className="absolute inset-0 flex flex-col items-center justify-center">
               <span className="text-2xl font-bold">
-                <AnimatedNumber value={health.score} format={(n) => Math.round(n).toString()} />
+                {health.score !== null ? (
+                  <AnimatedNumber value={health.score} format={(n) => Math.round(n).toString()} />
+                ) : (
+                  "—"
+                )}
               </span>
-              <span className="text-[10px] text-[var(--muted)]">/ 100</span>
+              {health.score !== null && <span className="text-[10px] text-[var(--muted)]">/ 100</span>}
             </div>
           </div>
           <div className="mt-3 font-semibold" style={{ color: health.color }}>
             {health.label}
           </div>
           <p className="text-xs text-[var(--muted)] text-center mt-1">Budget Health Score</p>
+          
+          {health.score !== null && health.breakdown && (
+            <div className="mt-4 w-full grid grid-cols-2 gap-2 text-[10px] text-[var(--muted)] border-t border-[var(--border)] pt-3 text-center">
+              <div>Assigned: {health.breakdown.assignedCoverage}/35</div>
+              <div>Savings: {health.breakdown.savingsCoverage}/25</div>
+              <div>Buffer: {health.breakdown.ageOfMoney}/20</div>
+              <div>Discipline: {health.breakdown.overspendDiscipline}/20</div>
+            </div>
+          )}
         </motion.div>
 
         <motion.div variants={item} className="card p-5 lg:col-span-2">
@@ -162,6 +183,25 @@ export default function DashboardPage() {
           ) : (
             <div className="flex flex-col sm:flex-row items-center gap-4">
               <AllocationPie data={pieData} symbol={symbol} />
+              <div className="sr-only">
+                <h3>Category Allocations Table</h3>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Category Group</th>
+                      <th>Assigned Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pieData.map((d) => (
+                      <tr key={d.name}>
+                        <td>{d.name}</td>
+                        <td>{formatCurrency(d.value, symbol)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
               <div className="space-y-2 text-sm">
                 {pieData.map((d) => (
                   <div key={d.key} className="flex items-center gap-2">
@@ -185,7 +225,28 @@ export default function DashboardPage() {
           {topCategories.every((c) => c.spent === 0) ? (
             <EmptyState text="No transactions logged yet this month." />
           ) : (
-            <TopCategoriesBar data={topCategories} symbol={symbol} />
+            <>
+              <TopCategoriesBar data={topCategories} symbol={symbol} />
+              <div className="sr-only">
+                <h3>Top Spending Categories Table</h3>
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Category Name</th>
+                      <th>Spent Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {topCategories.map((c) => (
+                      <tr key={c.id}>
+                        <td>{c.name}</td>
+                        <td>{formatCurrency(c.spent, symbol)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </motion.div>
 

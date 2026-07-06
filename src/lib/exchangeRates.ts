@@ -25,7 +25,7 @@ export async function fetchExchangeRates(base: string): Promise<RatesResult | nu
     const cached = readCache(base);
     if (cached) return cached;
 
-    const res = await fetch(`${API_BASE}/latest?base=${base}`, {
+    const res = await fetch(`/api/rates?base=${base}`, {
       signal: AbortSignal.timeout(6000),
     });
     if (!res.ok) return null;

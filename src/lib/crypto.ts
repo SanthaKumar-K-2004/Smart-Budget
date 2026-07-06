@@ -40,21 +40,9 @@ export async function fetchCoinPrices(vsCurrency: string, ids: string[]): Promis
     if (cached) return cached;
 
     const idsParam = ids.join(",");
-    const { coinGeckoKey } = getApiConfig();
-    const url = new URL("https://api.coingecko.com/api/v3/coins/markets");
-    url.searchParams.set("vs_currency", vsCurrency.toLowerCase());
-    url.searchParams.set("ids", idsParam);
-    url.searchParams.set("order", "market_cap_desc");
-    url.searchParams.set("sparkline", "false");
-    url.searchParams.set("price_change_percentage", "24h");
-    if (coinGeckoKey) {
-      url.searchParams.set("x_cg_demo_api_key", coinGeckoKey);
-    }
+    const url = `/api/crypto?vs_currency=${vsCurrency.toLowerCase()}&ids=${idsParam}`;
 
-    const res = await fetch(
-      url.toString(),
-      { signal: AbortSignal.timeout(6000) }
-    );
+    const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
     if (!res.ok) return null;
     const data = (await res.json()) as CoinPrice[];
     writeCache(cacheKey, data);

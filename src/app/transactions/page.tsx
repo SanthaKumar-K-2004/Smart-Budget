@@ -5,17 +5,32 @@ import { useStore } from "@/lib/store";
 import { currencySymbol } from "@/lib/defaults";
 import { formatCurrency } from "@/lib/calc";
 import { CategoryIcon } from "@/lib/icons";
-import { Plus, Trash2, Search, Pencil, Download, Repeat2 } from "lucide-react";
+import { Plus, Trash2, Search, Pencil, Download, Repeat2, Tag } from "lucide-react";
 import { toast } from "sonner";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import Modal from "@/components/ui/Modal";
 import Switch from "@/components/ui/Switch";
 import { RecurringTransaction, Transaction } from "@/lib/types";
 import { motion, AnimatePresence } from "framer-motion";
+import { z } from "zod";
+import DOMPurify from "dompurify";
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
 }
+
+// Zod Schema for validation
+const transactionSchema = z.object({
+  description: z.string().min(1, "Description is required").max(100, "Description must be under 100 characters"),
+  payee: z.string().max(100, "Payee name must be under 100 characters").optional(),
+  account: z.string().max(50, "Account name must be under 50 characters").optional(),
+  amount: z.number().positive("Amount must be greater than 0"),
+  type: z.enum(["expense", "income"]),
+  categoryId: z.string().optional(),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date format"),
+  note: z.string().max(500, "Notes must be under 500 characters").optional(),
+  tags: z.array(z.string()).optional(),
+});
 
 export default function TransactionsPage() {
   const {
@@ -32,9 +47,14 @@ export default function TransactionsPage() {
 
   const [type, setType] = useState<"expense" | "income">("expense");
   const [description, setDescription] = useState("");
+  const [payee, setPayee] = useState("");
+  const [account, setAccount] = useState("Cash");
   const [amount, setAmount] = useState("");
   const [categoryId, setCategoryId] = useState(state.categories[0]?.id || "");
   const [date, setDate] = useState(todayIso());
+  const [note, setNote] = useState("");
+  const [tagsInput, setTagsInput] = useState("");
+
   const [search, setSearch] = useState("");
   const [filterCat, setFilterCat] = useState("all");
   const [editing, setEditing] = useState<Transaction | null>(null);
@@ -48,9 +68,24 @@ export default function TransactionsPage() {
   const [recCadence, setRecCadence] = useState<"monthly" | "weekly" | "yearly">("monthly");
   const [deleteRecurring, setDeleteRecurring] = useState<RecurringTransaction | null>(null);
 
+  // List of accounts available from user's assets and debts
+  const accountOptions = useMemo(() => {
+    const list = ["Cash", "Main Bank Account", "Credit Card"];
+    state.assets.forEach((a) => {
+      if (a.name && !list.includes(a.name)) list.push(a.name);
+    });
+    state.debts.forEach((d) => {
+      if (d.name && !list.includes(d.name)) list.push(d.name);
+    });
+    return list;
+  }, [state.assets, state.debts]);
+
   const filtered = useMemo(() => {
     return state.transactions.filter((t) => {
-      const matchesSearch = t.description.toLowerCase().includes(search.toLowerCase());
+      const matchDesc = t.description.toLowerCase().includes(search.toLowerCase());
+      const matchPayee = t.payee?.toLowerCase().includes(search.toLowerCase()) || false;
+      const matchTags = t.tags?.some((tg) => tg.toLowerCase().includes(search.toLowerCase())) || false;
+      const matchesSearch = matchDesc || matchPayee || matchTags;
       const matchesCat = filterCat === "all" || t.categoryId === filterCat;
       return matchesSearch && matchesCat;
     });
@@ -60,34 +95,66 @@ export default function TransactionsPage() {
 
   const handleSubmit = () => {
     const amt = parseFloat(amount);
-    if (!description.trim()) {
-      toast.error("Enter a description.");
-      return;
-    }
     if (!amt || amt <= 0) {
       toast.error("Enter a valid amount greater than 0.");
       return;
     }
-    addTransaction({
-      date,
-      description: description.trim(),
+
+    // Input Sanitization using DOMPurify
+    const cleanDesc = DOMPurify.sanitize(description.trim());
+    const cleanPayee = DOMPurify.sanitize(payee.trim());
+    const cleanNote = DOMPurify.sanitize(note.trim());
+    const cleanAccount = DOMPurify.sanitize(account.trim());
+    const tagArray = tagsInput
+      .split(",")
+      .map((t) => DOMPurify.sanitize(t.trim()))
+      .filter((t) => t.length > 0);
+
+    const validation = transactionSchema.safeParse({
+      description: cleanDesc,
+      payee: cleanPayee || undefined,
+      account: cleanAccount || undefined,
       amount: amt,
       type,
       categoryId: type === "expense" ? categoryId : undefined,
+      date,
+      note: cleanNote || undefined,
+      tags: tagArray.length > 0 ? tagArray : undefined,
     });
+
+    if (!validation.success) {
+      toast.error(validation.error.issues[0].message);
+      return;
+    }
+
+    addTransaction(validation.data);
     toast.success(`${type === "income" ? "Income" : "Expense"} added.`);
+    
     setDescription("");
+    setPayee("");
     setAmount("");
+    setNote("");
+    setTagsInput("");
   };
 
   const handleExportCsv = () => {
-    const header = ["Date", "Description", "Type", "Category", "Amount"];
+    const header = ["Date", "Description", "Payee", "Account", "Type", "Category", "Amount", "Note", "Tags"];
     const rows = state.transactions.map((t) => {
       const cat = state.categories.find((c) => c.id === t.categoryId);
-      return [t.date, t.description, t.type, cat?.name || "", t.amount.toString()];
+      return [
+        t.date,
+        t.description,
+        t.payee || "",
+        t.account || "",
+        t.type,
+        cat?.name || "",
+        t.amount.toString(),
+        t.note || "",
+        (t.tags || []).join(";"),
+      ];
     });
     const csv = [header, ...rows].map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(",")).join("\n");
-    const blob = new Blob([csv], { type: "text/csv" });
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -108,7 +175,7 @@ export default function TransactionsPage() {
       return;
     }
     addRecurring({
-      description: recName.trim(),
+      description: DOMPurify.sanitize(recName.trim()),
       amount: amt,
       type: recType,
       categoryId: recType === "expense" ? recCategoryId : undefined,
@@ -127,7 +194,7 @@ export default function TransactionsPage() {
           <h1 className="text-xl sm:text-2xl font-bold">Transactions</h1>
           <p className="text-[var(--muted)] text-sm">Log spending and income manually — fully private, no bank linking.</p>
         </div>
-        <button className="btn-secondary text-sm w-fit" onClick={handleExportCsv}>
+        <button className="btn-secondary text-sm w-fit animate-fade-in" onClick={handleExportCsv}>
           <Download size={14} /> Export CSV
         </button>
       </div>
@@ -135,40 +202,103 @@ export default function TransactionsPage() {
       {/* Add transaction form */}
       <div className="card p-5">
         <h2 className="font-semibold mb-3">Add Transaction</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-2">
-          <select className="input lg:col-span-1" value={type} onChange={(e) => setType(e.target.value as "expense" | "income")}>
-            <option value="expense">Expense</option>
-            <option value="income">Income</option>
-          </select>
-          <input
-            className="input lg:col-span-2"
-            placeholder="Description"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
-          />
-          <input
-            type="number"
-            className="input"
-            placeholder={`Amount (${symbol})`}
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
-          />
-          {type === "expense" ? (
-            <select className="input" value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
-              {state.categories.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div>
+            <label className="text-[10px] uppercase font-semibold text-[var(--muted)]">Type</label>
+            <select className="input mt-1" value={type} onChange={(e) => setType(e.target.value as "expense" | "income")}>
+              <option value="expense">Expense</option>
+              <option value="income">Income</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="text-[10px] uppercase font-semibold text-[var(--muted)]">Description</label>
+            <input
+              className="input mt-1"
+              placeholder="e.g. Weekly Groceries"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
+            />
+          </div>
+
+          <div>
+            <label className="text-[10px] uppercase font-semibold text-[var(--muted)]">Payee / Merchant</label>
+            <input
+              className="input mt-1"
+              placeholder="e.g. Supermarket"
+              value={payee}
+              onChange={(e) => setPayee(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
+            />
+          </div>
+
+          <div>
+            <label className="text-[10px] uppercase font-semibold text-[var(--muted)]">Account</label>
+            <select className="input mt-1" value={account} onChange={(e) => setAccount(e.target.value)}>
+              {accountOptions.map((opt) => (
+                <option key={opt} value={opt}>
+                  {opt}
                 </option>
               ))}
             </select>
+          </div>
+
+          <div>
+            <label className="text-[10px] uppercase font-semibold text-[var(--muted)]">Amount ({symbol})</label>
+            <input
+              type="number"
+              className="input mt-1"
+              placeholder="0.00"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
+            />
+          </div>
+
+          {type === "expense" ? (
+            <div>
+              <label className="text-[10px] uppercase font-semibold text-[var(--muted)]">Category</label>
+              <select className="input mt-1" value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
+                {state.categories.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
           ) : (
             <div className="hidden lg:block" />
           )}
-          <input type="date" className="input" value={date} onChange={(e) => setDate(e.target.value)} />
+
+          <div>
+            <label className="text-[10px] uppercase font-semibold text-[var(--muted)]">Date</label>
+            <input type="date" className="input mt-1" value={date} onChange={(e) => setDate(e.target.value)} />
+          </div>
+
+          <div>
+            <label className="text-[10px] uppercase font-semibold text-[var(--muted)]">Tags (comma separated)</label>
+            <input
+              className="input mt-1"
+              placeholder="food, travel"
+              value={tagsInput}
+              onChange={(e) => setTagsInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
+            />
+          </div>
+
+          <div className="sm:col-span-2 lg:col-span-4">
+            <label className="text-[10px] uppercase font-semibold text-[var(--muted)]">Notes</label>
+            <input
+              className="input mt-1"
+              placeholder="Optional notes about this transaction..."
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
+            />
+          </div>
         </div>
-        <button className="btn-primary mt-3" onClick={handleSubmit}>
+        <button className="btn-primary mt-4" onClick={handleSubmit}>
           <Plus size={16} /> Add Transaction
         </button>
       </div>
@@ -265,7 +395,7 @@ export default function TransactionsPage() {
           <Search size={16} className="text-[var(--muted)]" />
           <input
             className="flex-1 outline-none bg-transparent"
-            placeholder="Search transactions..."
+            placeholder="Search by description, payee, or #tags..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
@@ -302,10 +432,32 @@ export default function TransactionsPage() {
                     </span>
                     <div className="min-w-0">
                       <p className="text-sm font-medium truncate">{t.description}</p>
-                      <p className="text-xs text-[var(--muted)]">
-                        {cat?.name || (t.type === "income" ? "Income" : "Uncategorized")} ·{" "}
-                        {new Date(t.date).toLocaleDateString()}
-                      </p>
+                      <div className="text-xs text-[var(--muted)] space-y-0.5">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span>{cat?.name || (t.type === "income" ? "Income" : "Uncategorized")}</span>
+                          <span>·</span>
+                          <span>{new Date(t.date).toLocaleDateString()}</span>
+                          {t.account && (
+                            <>
+                              <span>·</span>
+                              <span className="px-1.5 py-0.5 rounded bg-[var(--border)] text-[10px] text-[var(--foreground)]">
+                                {t.account}
+                              </span>
+                            </>
+                          )}
+                        </div>
+                        {t.payee && <p>Payee: <span className="font-medium text-[var(--foreground)]">{t.payee}</span></p>}
+                        {t.note && <p className="italic">Note: {t.note}</p>}
+                        {t.tags && t.tags.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {t.tags.map((tg) => (
+                              <span key={tg} className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-[var(--brand)]/10 text-[var(--brand)] text-[9px] font-medium">
+                                <Tag size={8} /> {tg}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                   <div className="flex items-center gap-1 shrink-0">
@@ -330,56 +482,154 @@ export default function TransactionsPage() {
       <Modal open={!!editing} onOpenChange={(o) => !o && setEditing(null)} title="Edit Transaction">
         {editing && (
           <div className="space-y-3">
-            <select
-              className="input"
-              value={editing.type}
-              onChange={(e) => setEditing({ ...editing, type: e.target.value as "expense" | "income" })}
-            >
-              <option value="expense">Expense</option>
-              <option value="income">Income</option>
-            </select>
-            <input
-              className="input"
-              value={editing.description}
-              onChange={(e) => setEditing({ ...editing, description: e.target.value })}
-            />
-            <input
-              type="number"
-              className="input"
-              value={editing.amount}
-              onChange={(e) => setEditing({ ...editing, amount: parseFloat(e.target.value) || 0 })}
-            />
-            {editing.type === "expense" && (
+            <div>
+              <label className="text-xs font-semibold text-[var(--muted)]">Type</label>
               <select
-                className="input"
-                value={editing.categoryId || ""}
-                onChange={(e) => setEditing({ ...editing, categoryId: e.target.value })}
+                className="input mt-1"
+                value={editing.type}
+                onChange={(e) => setEditing({ ...editing, type: e.target.value as "expense" | "income" })}
               >
-                {state.categories.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
+                <option value="expense">Expense</option>
+                <option value="income">Income</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-[var(--muted)]">Description</label>
+              <input
+                className="input mt-1"
+                value={editing.description}
+                onChange={(e) => setEditing({ ...editing, description: e.target.value })}
+              />
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-[var(--muted)]">Payee</label>
+              <input
+                className="input mt-1"
+                value={editing.payee || ""}
+                onChange={(e) => setEditing({ ...editing, payee: e.target.value })}
+              />
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-[var(--muted)]">Account</label>
+              <select
+                className="input mt-1"
+                value={editing.account || "Cash"}
+                onChange={(e) => setEditing({ ...editing, account: e.target.value })}
+              >
+                {accountOptions.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {opt}
                   </option>
                 ))}
               </select>
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-[var(--muted)]">Amount</label>
+              <input
+                type="number"
+                className="input mt-1"
+                value={editing.amount}
+                onChange={(e) => setEditing({ ...editing, amount: parseFloat(e.target.value) || 0 })}
+              />
+            </div>
+
+            {editing.type === "expense" && (
+              <div>
+                <label className="text-xs font-semibold text-[var(--muted)]">Category</label>
+                <select
+                  className="input mt-1"
+                  value={editing.categoryId || ""}
+                  onChange={(e) => setEditing({ ...editing, categoryId: e.target.value })}
+                >
+                  {state.categories.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
             )}
-            <input
-              type="date"
-              className="input"
-              value={editing.date}
-              onChange={(e) => setEditing({ ...editing, date: e.target.value })}
-            />
-            <div className="flex justify-end gap-2">
+
+            <div>
+              <label className="text-xs font-semibold text-[var(--muted)]">Date</label>
+              <input
+                type="date"
+                className="input mt-1"
+                value={editing.date}
+                onChange={(e) => setEditing({ ...editing, date: e.target.value })}
+              />
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-[var(--muted)]">Tags (comma separated)</label>
+              <input
+                className="input mt-1"
+                value={(editing.tags || []).join(", ")}
+                onChange={(e) =>
+                  setEditing({
+                    ...editing,
+                    tags: e.target.value
+                      .split(",")
+                      .map((t) => t.trim())
+                      .filter((t) => t.length > 0),
+                  })
+                }
+              />
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-[var(--muted)]">Notes</label>
+              <input
+                className="input mt-1"
+                value={editing.note || ""}
+                onChange={(e) => setEditing({ ...editing, note: e.target.value })}
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
               <button className="btn-secondary" onClick={() => setEditing(null)}>
                 Cancel
               </button>
               <button
                 className="btn-primary"
                 onClick={() => {
-                  if (!editing.description.trim() || editing.amount <= 0) {
+                  const amt = editing.amount;
+                  if (!editing.description.trim() || amt <= 0) {
                     toast.error("Please enter a valid description and amount.");
                     return;
                   }
-                  updateTransaction(editing.id, editing);
+                  
+                  const cleanDesc = DOMPurify.sanitize(editing.description.trim());
+                  const cleanPayee = DOMPurify.sanitize(editing.payee?.trim() || "");
+                  const cleanNote = DOMPurify.sanitize(editing.note?.trim() || "");
+                  const cleanAccount = DOMPurify.sanitize(editing.account?.trim() || "Cash");
+                  const cleanTags = (editing.tags || []).map((t) => DOMPurify.sanitize(t.trim())).filter((t) => t.length > 0);
+
+                  const validation = transactionSchema.safeParse({
+                    description: cleanDesc,
+                    payee: cleanPayee || undefined,
+                    account: cleanAccount || undefined,
+                    amount: amt,
+                    type: editing.type,
+                    categoryId: editing.type === "expense" ? editing.categoryId : undefined,
+                    date: editing.date,
+                    note: cleanNote || undefined,
+                    tags: cleanTags.length > 0 ? cleanTags : undefined,
+                  });
+
+                  if (!validation.success) {
+                    toast.error(validation.error.issues[0].message);
+                    return;
+                  }
+
+                  updateTransaction(editing.id, {
+                    ...editing,
+                    ...validation.data,
+                  });
                   toast.success("Transaction updated.");
                   setEditing(null);
                 }}

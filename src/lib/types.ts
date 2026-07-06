@@ -14,10 +14,13 @@ export interface Transaction {
   id: string;
   date: string; // ISO date
   description: string;
+  payee?: string; // merchant/recipient
+  account?: string; // cash, bank account, credit card, etc.
   amount: number; // always positive, sign determined by `type`
   type: "expense" | "income";
   categoryId?: string; // undefined for income
   note?: string;
+  tags?: string[];
 }
 
 export interface Goal {
@@ -49,6 +52,8 @@ export interface Asset {
   coinId?: string;
   /** Only used when type === "crypto": quantity held; value is derived live from price × quantity */
   quantity?: number;
+  costBasis?: number;
+  acquiredDate?: string;
 }
 
 export type DebtStrategy = "avalanche" | "snowball";

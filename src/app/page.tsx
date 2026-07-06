@@ -53,7 +53,7 @@ const onboardingSteps = [
 ];
 
 export default function IntroPage() {
-  const { variant, setVariant, hydrated } = useBrandTheme();
+  const { variant, hydrated } = useBrandTheme();
   const [showSplash, setShowSplash] = useState(true);
   const [showFirstOpenOnboarding, setShowFirstOpenOnboarding] = useState(false);
 
@@ -69,26 +69,7 @@ export default function IntroPage() {
     return () => clearTimeout(timer);
   }, []);
 
-  const variants = useMemo(
-    () => [
-      {
-        key: "signature" as BrandVariant,
-        label: "Signature",
-        note: "Gradient mark with bold wordmark",
-      },
-      {
-        key: "monoline" as BrandVariant,
-        label: "Monoline",
-        note: "Minimal line icon with alternate wordmark",
-      },
-      {
-        key: "emblem" as BrandVariant,
-        label: "Premium Emblem",
-        note: "Luxury crest icon with premium wordmark",
-      },
-    ],
-    []
-  );
+
 
   return (
     <>
@@ -136,39 +117,7 @@ export default function IntroPage() {
           </div>
         </motion.section>
 
-        <motion.section variants={item} className="card p-4 sm:p-6">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-            <div>
-              <h2 className="font-semibold text-lg">Choose Your Logo Style</h2>
-              <p className="text-sm text-[var(--muted)] mt-1">Pick a brand look. Your choice updates across the app instantly.</p>
-            </div>
-          </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-4">
-            {variants.map((opt) => {
-              const active = variant === opt.key;
-              return (
-                <button
-                  key={opt.key}
-                  type="button"
-                  onClick={() => setVariant(opt.key)}
-                  className={`text-left rounded-2xl border p-4 transition-all ${
-                    active
-                      ? "border-[var(--brand)] bg-[color-mix(in_srgb,var(--brand)_9%,transparent)]"
-                      : "border-[var(--border)] hover:border-[var(--border-strong)]"
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <BrandLogo size={30} variant={opt.key} withWordmark={false} />
-                    {active && <CheckCircle2 size={18} className="text-[var(--brand)]" />}
-                  </div>
-                  <div className="mt-2.5 font-semibold text-sm">{opt.label}</div>
-                  <div className="text-xs text-[var(--muted)] mt-1">{opt.note}</div>
-                </button>
-              );
-            })}
-          </div>
-        </motion.section>
 
         <motion.section variants={item} className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {features.map(({ title, body, icon: Icon }) => (

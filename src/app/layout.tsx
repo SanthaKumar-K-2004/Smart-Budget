@@ -4,6 +4,7 @@ import "./globals.css";
 import { StoreProvider } from "@/lib/store";
 import ThemeProvider from "@/components/ThemeProvider";
 import NavBar from "@/components/NavBar";
+import VaultGuard from "@/components/VaultGuard";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import { Toaster } from "sonner";
 import BrandThemeProvider from "@/components/BrandThemeProvider";
@@ -62,10 +63,11 @@ export default function RootLayout({
               <BrandThemeProvider>
                 <NavBar />
                 <main className="flex-1 w-full max-w-7xl mx-auto px-3.5 sm:px-4 md:px-6 py-4 md:py-6 pb-28 lg:pb-6">
-                  {children}
+                  <VaultGuard>{children}</VaultGuard>
                 </main>
-                <footer className="hidden lg:block text-center text-xs text-[var(--muted)] py-6">
-                  SmartBudget — your data stays on this device. No servers, no tracking.
+                <footer className="text-center text-xs text-[var(--muted)] py-6 px-4 space-y-1">
+                  <p>SmartBudget — your data stays on this device. No servers, no tracking.</p>
+                  <p className="text-[10px] opacity-75">Educational purpose only. Not financial advice. Not SEBI registered investment advice.</p>
                 </footer>
               </BrandThemeProvider>
             </StoreProvider>
