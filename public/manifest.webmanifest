@@ -1,0 +1,18 @@
+{
+  "name": "SmartBudget — Personal Finance",
+  "short_name": "SmartBudget",
+  "description": "Privacy-first budgeting app: 50/30/20 & zero-based budgeting, net worth, debt payoff planner, and more — 100% local, no bank linking.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#eef1fb",
+  "theme_color": "#4f46e5",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
