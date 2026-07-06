@@ -1,7 +1,15 @@
 import { NextResponse } from "next/server";
 
+interface CoinMarketData {
+  id: string;
+  symbol: string;
+  name: string;
+  current_price: number;
+  price_change_percentage_24h: number;
+}
+
 const CACHE_TTL_MS = 60 * 1000; // 60 seconds server-side cache
-const cache = new Map<string, { data: any; timestamp: number }>();
+const cache = new Map<string, { data: CoinMarketData[]; timestamp: number }>();
 
 export async function GET(request: Request) {
   try {
@@ -32,10 +40,15 @@ export async function GET(request: Request) {
     url.searchParams.set("sparkline", "false");
     url.searchParams.set("price_change_percentage", "24h");
 
-    // Add API key from environment if configured
-    const key = process.env.NEXT_PUBLIC_COINGECKO_API_KEY || process.env.COINGECKO_API_KEY;
-    if (key) {
-      url.searchParams.set("x_cg_demo_api_key", key);
+    // Retrieve client-supplied key from request headers or environment
+    const customKey = request.headers.get("X-CoinGecko-Key");
+    if (customKey) {
+      url.searchParams.set("x_cg_demo_api_key", customKey);
+    } else {
+      const envKey = process.env.NEXT_PUBLIC_COINGECKO_API_KEY || process.env.COINGECKO_API_KEY;
+      if (envKey) {
+        url.searchParams.set("x_cg_demo_api_key", envKey);
+      }
     }
 
     const res = await fetch(url.toString(), {
@@ -46,14 +59,13 @@ export async function GET(request: Request) {
     });
 
     if (!res.ok) {
-      // If public API fails (e.g. rate limit), return stale cache if exists
       if (cached) {
         return NextResponse.json(cached.data);
       }
       return NextResponse.json({ error: "Failed to fetch from CoinGecko" }, { status: res.status });
     }
 
-    const data = await res.json();
+    const data = (await res.json()) as CoinMarketData[];
     cache.set(cacheKey, { data, timestamp: Date.now() });
 
     return NextResponse.json(data, {

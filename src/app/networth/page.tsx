@@ -7,7 +7,7 @@ import { currencySymbol } from "@/lib/defaults";
 import { formatCurrency, totalAssets, totalDebts, netWorth } from "@/lib/calc";
 import { ASSET_TYPE_ICON } from "@/lib/icons";
 import { AssetType } from "@/lib/types";
-import { Plus, Trash2, Scale, TrendingUp, TrendingDown, RefreshCw, AlertTriangle, Tag } from "lucide-react";
+import { Plus, Trash2, Scale, TrendingUp, TrendingDown, RefreshCw, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import AnimatedNumber from "@/components/ui/AnimatedNumber";

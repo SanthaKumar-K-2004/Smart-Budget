@@ -10,13 +10,14 @@ import ConfirmDialog from "@/components/ui/ConfirmDialog";
 import { motion } from "framer-motion";
 
 export default function GoalsPage() {
-  const { state, addGoal, updateGoal, removeGoal, hydrated } = useStore();
+  const { state, addGoal, updateGoal, removeGoal, addTransaction, hydrated } = useStore();
   const symbol = currencySymbol(state.currency);
 
   const [name, setName] = useState("");
   const [target, setTarget] = useState("");
   const [saved, setSaved] = useState("");
   const [date, setDate] = useState("");
+
   const [addAmounts, setAddAmounts] = useState<Record<string, string>>({});
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
 
@@ -50,8 +51,21 @@ export default function GoalsPage() {
     const goal = state.goals.find((g) => g.id === id);
     if (!goal) return;
     updateGoal(id, { savedAmount: goal.savedAmount + amt });
+
+    // Find the first cash asset to deduct from or fallback to 'Main Bank Account'
+    const defaultAccount = state.assets.find((a) => a.type === "cash")?.name || "Main Bank Account";
+    addTransaction({
+      date: new Date().toISOString().slice(0, 10),
+      description: `Goal Contribution: ${goalName}`,
+      amount: amt,
+      type: "expense",
+      account: defaultAccount,
+      note: `Contributed to savings goal "${goalName}"`,
+      tags: ["savings", "goal-transfer"],
+    });
+
     setAddAmounts((s) => ({ ...s, [id]: "" }));
-    toast.success(`Added ${formatCurrency(amt, symbol)} to ${goalName}.`);
+    toast.success(`Added ${formatCurrency(amt, symbol)} to ${goalName} (debited from ${defaultAccount}).`);
   };
 
   return (

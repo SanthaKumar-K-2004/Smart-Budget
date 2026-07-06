@@ -129,53 +129,57 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const sessionPass = sessionStorage.getItem("smartbudget:passphrase");
     const raw = safeGetItem(STORAGE_KEY) ?? safeGetItem(LEGACY_KEY);
     
-    if (raw && raw.includes('"encrypted":true')) {
-      setHasPassphrase(true);
-      if (sessionPass) {
-        decryptData(raw, sessionPass)
-          .then((decrypted) => {
-            setState(sanitizeState(JSON.parse(decrypted)));
-            setPassphrase(sessionPass);
-            setVaultLocked(false);
-            setHydrated(true);
-          })
-          .catch(() => {
-            // Decryption failed (e.g. stale session pass)
-            setVaultLocked(true);
-            setHydrated(true);
-          });
+    setTimeout(() => {
+      if (raw && raw.includes('"encrypted":true')) {
+        setHasPassphrase(true);
+        if (sessionPass) {
+          decryptData(raw, sessionPass)
+            .then((decrypted) => {
+              setState(sanitizeState(JSON.parse(decrypted)));
+              setPassphrase(sessionPass);
+              setVaultLocked(false);
+              setHydrated(true);
+            })
+            .catch(() => {
+              // Decryption failed (e.g. stale session pass)
+              setVaultLocked(true);
+              setHydrated(true);
+            });
+        } else {
+          setVaultLocked(true);
+          setHydrated(true);
+        }
       } else {
-        setVaultLocked(true);
+        setHasPassphrase(false);
+        setState(loadState());
         setHydrated(true);
       }
-    } else {
-      setHasPassphrase(false);
-      setState(loadState());
-      setHydrated(true);
-    }
+    }, 0);
   }, []);
 
   // Auto-post recurring transactions once per month, per item.
   useEffect(() => {
     if (!hydrated || vaultLocked) return;
     const monthKey = currentMonthKey();
-    setState((s) => {
-      const due = s.recurring.filter((r) => r.active && shouldPostRecurring(r.lastPostedMonth, monthKey));
-      if (due.length === 0) return s;
-      const newTx: Transaction[] = due.map((r) => ({
-        id: uuid(),
-        date: new Date().toISOString().slice(0, 10),
-        description: r.description,
-        amount: r.amount,
-        type: r.type,
-        categoryId: r.categoryId,
-      }));
-      const updatedRecurring = s.recurring.map((r) =>
-        due.find((d) => d.id === r.id) ? { ...r, lastPostedMonth: monthKey } : r
-      );
-      setTimeout(() => toast.success(`Auto-posted ${due.length} recurring item(s).`), 300);
-      return { ...s, transactions: [...newTx, ...s.transactions], recurring: updatedRecurring };
-    });
+    setTimeout(() => {
+      setState((s) => {
+        const due = s.recurring.filter((r) => r.active && shouldPostRecurring(r.lastPostedMonth, monthKey));
+        if (due.length === 0) return s;
+        const newTx: Transaction[] = due.map((r) => ({
+          id: uuid(),
+          date: new Date().toISOString().slice(0, 10),
+          description: r.description,
+          amount: r.amount,
+          type: r.type,
+          categoryId: r.categoryId,
+        }));
+        const updatedRecurring = s.recurring.map((r) =>
+          due.find((d) => d.id === r.id) ? { ...r, lastPostedMonth: monthKey } : r
+        );
+        setTimeout(() => toast.success(`Auto-posted ${due.length} recurring item(s).`), 300);
+        return { ...s, transactions: [...newTx, ...s.transactions], recurring: updatedRecurring };
+      });
+    }, 0);
   }, [hydrated, vaultLocked]);
 
   // Persist state to localStorage (encrypted or plain text)
@@ -229,7 +233,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     };
   }, [passphrase]);
 
-  const unlockVault = async (pass: string): Promise<boolean> => {
+  const unlockVault = useCallback(async (pass: string): Promise<boolean> => {
     try {
       const raw = safeGetItem(STORAGE_KEY) ?? safeGetItem(LEGACY_KEY);
       if (!raw) return false;
@@ -245,9 +249,9 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       toast.error("Incorrect vault passphrase.");
       return false;
     }
-  };
+  }, []);
 
-  const setupVault = async (pass: string | null) => {
+  const setupVault = useCallback(async (pass: string | null) => {
     if (pass === null) {
       setPassphrase(null);
       sessionStorage.removeItem("smartbudget:passphrase");
@@ -265,7 +269,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         console.error(e);
       }
     }
-  };
+  }, [state]);
 
   const lockVault = useCallback(() => {
     setVaultLocked(true);
@@ -294,13 +298,70 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const addTransaction = useCallback((t: Omit<Transaction, "id">) => {
-    setState((s) => ({ ...s, transactions: [{ ...t, id: uuid() }, ...s.transactions] }));
+    setState((s) => {
+      const newTx = { ...t, id: uuid() };
+      let updatedAssets = s.assets;
+      let updatedDebts = s.debts;
+      if (t.account) {
+        const lowerAccount = t.account.toLowerCase().trim();
+        updatedAssets = s.assets.map((a) => {
+          if (a.name.toLowerCase().trim() === lowerAccount) {
+            const diff = t.type === "income" ? t.amount : -t.amount;
+            return { ...a, value: Math.max(0, a.value + diff) };
+          }
+          return a;
+        });
+        updatedDebts = s.debts.map((d) => {
+          if (d.name.toLowerCase().trim() === lowerAccount) {
+            const diff = t.type === "expense" ? t.amount : -t.amount;
+            return { ...d, balance: Math.max(0, d.balance + diff) };
+          }
+          return d;
+        });
+      }
+      return {
+        ...s,
+        transactions: [newTx, ...s.transactions],
+        assets: updatedAssets,
+        debts: updatedDebts,
+      };
+    });
   }, []);
+
   const updateTransaction = useCallback((id: string, patch: Partial<Transaction>) => {
     setState((s) => ({ ...s, transactions: s.transactions.map((t) => (t.id === id ? { ...t, ...patch } : t)) }));
   }, []);
+
   const removeTransaction = useCallback((id: string) => {
-    setState((s) => ({ ...s, transactions: s.transactions.filter((t) => t.id !== id) }));
+    setState((s) => {
+      const t = s.transactions.find((tx) => tx.id === id);
+      if (!t) return s;
+      let updatedAssets = s.assets;
+      let updatedDebts = s.debts;
+      if (t.account) {
+        const lowerAccount = t.account.toLowerCase().trim();
+        updatedAssets = s.assets.map((a) => {
+          if (a.name.toLowerCase().trim() === lowerAccount) {
+            const diff = t.type === "income" ? -t.amount : t.amount;
+            return { ...a, value: Math.max(0, a.value + diff) };
+          }
+          return a;
+        });
+        updatedDebts = s.debts.map((d) => {
+          if (d.name.toLowerCase().trim() === lowerAccount) {
+            const diff = t.type === "expense" ? -t.amount : t.amount;
+            return { ...d, balance: Math.max(0, d.balance + diff) };
+          }
+          return d;
+        });
+      }
+      return {
+        ...s,
+        transactions: s.transactions.filter((tx) => tx.id !== id),
+        assets: updatedAssets,
+        debts: updatedDebts,
+      };
+    });
   }, []);
 
   const addGoal = useCallback((g: Omit<Goal, "id">) => {
@@ -314,13 +375,50 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const addSubscription = useCallback((sub: Omit<Subscription, "id">) => {
-    setState((s) => ({ ...s, subscriptions: [...s.subscriptions, { ...sub, id: uuid() }] }));
+    setState((s) => {
+      const subId = uuid();
+      const newSub = { ...sub, id: subId };
+      const newRec: RecurringTransaction = {
+        id: subId,
+        description: sub.name,
+        amount: sub.amount,
+        type: "expense",
+        cadence: sub.cadence,
+        active: sub.active,
+      };
+      return {
+        ...s,
+        subscriptions: [...s.subscriptions, newSub],
+        recurring: [...s.recurring, newRec],
+      };
+    });
   }, []);
+
   const updateSubscription = useCallback((id: string, patch: Partial<Subscription>) => {
-    setState((s) => ({ ...s, subscriptions: s.subscriptions.map((sub) => (sub.id === id ? { ...sub, ...patch } : sub)) }));
+    setState((s) => {
+      const subscriptions = s.subscriptions.map((sub) => (sub.id === id ? { ...sub, ...patch } : sub));
+      const recurring = s.recurring.map((r) => {
+        if (r.id === id) {
+          return {
+            ...r,
+            description: patch.name !== undefined ? patch.name : r.description,
+            amount: patch.amount !== undefined ? patch.amount : r.amount,
+            cadence: patch.cadence !== undefined ? patch.cadence : r.cadence,
+            active: patch.active !== undefined ? patch.active : r.active,
+          };
+        }
+        return r;
+      });
+      return { ...s, subscriptions, recurring };
+    });
   }, []);
+
   const removeSubscription = useCallback((id: string) => {
-    setState((s) => ({ ...s, subscriptions: s.subscriptions.filter((sub) => sub.id !== id) }));
+    setState((s) => ({
+      ...s,
+      subscriptions: s.subscriptions.filter((sub) => sub.id !== id),
+      recurring: s.recurring.filter((r) => r.id !== id),
+    }));
   }, []);
 
   const addAsset = useCallback((a: Omit<Asset, "id">) => {

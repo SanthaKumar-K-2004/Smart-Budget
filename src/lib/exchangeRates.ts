@@ -7,6 +7,8 @@
 const API_BASE = "https://api.frankfurter.dev/v1";
 
 
+import { getApiConfig } from "@/lib/config";
+
 export interface RatesResult {
   base: string;
   date: string;
@@ -25,8 +27,17 @@ export async function fetchExchangeRates(base: string): Promise<RatesResult | nu
     const cached = readCache(base);
     if (cached) return cached;
 
+    const cfg = getApiConfig();
+    const headers: Record<string, string> = {
+      Accept: "application/json",
+    };
+    if (cfg.frankfurterKey) {
+      headers["X-Frankfurter-Key"] = cfg.frankfurterKey;
+    }
+
     const res = await fetch(`/api/rates?base=${base}`, {
       signal: AbortSignal.timeout(6000),
+      headers,
     });
     if (!res.ok) return null;
     const data = (await res.json()) as RatesResult;

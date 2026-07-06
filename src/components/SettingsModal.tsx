@@ -43,16 +43,18 @@ export default function SettingsModal({ open, onOpenChange }: SettingsModalProps
   useEffect(() => {
     if (open) {
       const cfg = getApiConfig();
-      setCoinGeckoKey(cfg.coinGeckoKey || "");
-      setFrankfurterKey(cfg.frankfurterKey || "");
-      setNagerKey(cfg.nagerKey || "");
-      setIsResetConfirm(false);
-      setNewPassphrase("");
-      setConfirmPassphrase("");
-      setShowPassSection(false);
-      setShowRestoreDecrypt(false);
-      setRestorePassphrase("");
-      setPendingRestoreJson("");
+      setTimeout(() => {
+        setCoinGeckoKey(cfg.coinGeckoKey || "");
+        setFrankfurterKey(cfg.frankfurterKey || "");
+        setNagerKey(cfg.nagerKey || "");
+        setIsResetConfirm(false);
+        setNewPassphrase("");
+        setConfirmPassphrase("");
+        setShowPassSection(false);
+        setShowRestoreDecrypt(false);
+        setRestorePassphrase("");
+        setPendingRestoreJson("");
+      }, 0);
     }
   }, [open]);
 

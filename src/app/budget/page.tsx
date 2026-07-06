@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useStore } from "@/lib/store";
 import { currencySymbol } from "@/lib/defaults";
 import { formatCurrency, totalAssigned, groupTotals, currentMonthKey, spentByCategory } from "@/lib/calc";
@@ -29,6 +29,42 @@ const groupMotion = {
   }),
 };
 
+function CategoryBudgetInput({
+  initialValue,
+  onCommit,
+}: {
+  initialValue: number;
+  onCommit: (val: number) => void;
+}) {
+  const [value, setValue] = useState(initialValue === 0 ? "" : String(initialValue));
+
+  useEffect(() => {
+    setValue(initialValue === 0 ? "" : String(initialValue));
+  }, [initialValue]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setValue(e.target.value);
+  };
+
+  const handleBlur = () => {
+    const numeric = parseFloat(value) || 0;
+    onCommit(numeric);
+    setValue(numeric === 0 ? "" : String(numeric));
+  };
+
+  return (
+    <input
+      type="number"
+      className="input w-full sm:w-28 text-sm shrink-0"
+      value={value}
+      placeholder="0"
+      onChange={handleChange}
+      onBlur={handleBlur}
+      onKeyDown={(e) => e.key === "Enter" && handleBlur()}
+    />
+  );
+}
+
 export default function BudgetPage() {
   const {
     state,
@@ -55,9 +91,6 @@ export default function BudgetPage() {
   let overspendPrev = 0;
   
   if (state.budgetMethod === "zero-based") {
-    const cashAssets = state.assets.filter((a) => a.type === "cash" || a.type === "investment").reduce((s, a) => s + a.value, 0);
-    const cashAvailable = cashAssets > 0 ? cashAssets : state.monthlyIncome;
-    
     const now = new Date();
     const prevMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const prevMonthKey = currentMonthKey(prevMonthDate);
@@ -67,7 +100,7 @@ export default function BudgetPage() {
       return sum + Math.max(0, spentInPrev - (c.assigned || 0));
     }, 0);
 
-    const rta = cashAvailable - assigned - overspendPrev;
+    const rta = state.monthlyIncome - assigned - overspendPrev;
     leftToAssign = Math.abs(rta) < 1 ? 0 : rta;
   } else {
     const leftToAssignRaw = state.monthlyIncome - assigned;
@@ -263,12 +296,9 @@ export default function BudgetPage() {
                       </div>
                     </div>
                     <div className="col-span-2 sm:col-span-1">
-                      <input
-                        type="number"
-                        className="input w-full sm:w-28 text-sm shrink-0"
-                        value={c.assigned || ""}
-                        placeholder="0"
-                        onChange={(e) => updateCategory(c.id, { assigned: parseFloat(e.target.value) || 0 })}
+                      <CategoryBudgetInput
+                        initialValue={c.assigned}
+                        onCommit={(val) => updateCategory(c.id, { assigned: val })}
                       />
                     </div>
                     <button

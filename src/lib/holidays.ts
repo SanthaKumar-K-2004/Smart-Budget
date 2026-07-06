@@ -3,6 +3,8 @@
 // budgeting app because bank holidays affect when salary deposits, bill
 // payments, and transfers actually clear.
 
+import { getApiConfig } from "@/lib/config";
+
 export interface Holiday {
   date: string;
   localName: string;
@@ -48,8 +50,17 @@ export async function fetchUpcomingHolidays(countryCode: string): Promise<Holida
     const cached = readCache(cacheKey);
     if (cached) return cached;
 
+    const cfg = getApiConfig();
+    const headers: Record<string, string> = {
+      Accept: "application/json",
+    };
+    if (cfg.nagerKey) {
+      headers["X-NagerDate-Key"] = cfg.nagerKey;
+    }
+
     const res = await fetch(`/api/holidays?country=${normCountry}`, {
       signal: AbortSignal.timeout(6000),
+      headers,
     });
     if (!res.ok) throw new Error("API call failed");
     const data = (await res.json()) as Holiday[];

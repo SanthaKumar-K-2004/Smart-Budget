@@ -18,7 +18,7 @@ export async function encryptData(plaintext: string, passphrase: string): Promis
   const key = await window.crypto.subtle.deriveKey(
     {
       name: "PBKDF2",
-      salt: salt as any,
+      salt: salt.buffer as ArrayBuffer,
       iterations: PBKDF2_ITERATIONS,
       hash: "SHA-256",
     },
@@ -30,7 +30,7 @@ export async function encryptData(plaintext: string, passphrase: string): Promis
   
   const iv = window.crypto.getRandomValues(new Uint8Array(12));
   const ciphertext = await window.crypto.subtle.encrypt(
-    { name: "AES-GCM", iv: iv as any },
+    { name: "AES-GCM", iv: iv.buffer as ArrayBuffer },
     key,
     enc.encode(plaintext)
   );
@@ -71,7 +71,7 @@ export async function decryptData(encryptedJson: string, passphrase: string): Pr
   const key = await window.crypto.subtle.deriveKey(
     {
       name: "PBKDF2",
-      salt: salt as any,
+      salt: salt.buffer as ArrayBuffer,
       iterations: PBKDF2_ITERATIONS,
       hash: "SHA-256",
     },
@@ -82,9 +82,9 @@ export async function decryptData(encryptedJson: string, passphrase: string): Pr
   );
   
   const decrypted = await window.crypto.subtle.decrypt(
-    { name: "AES-GCM", iv: iv as any },
+    { name: "AES-GCM", iv: iv.buffer as ArrayBuffer },
     key,
-    ciphertext as any
+    ciphertext.buffer as ArrayBuffer
   );
   
   return dec.decode(decrypted);

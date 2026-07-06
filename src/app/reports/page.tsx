@@ -4,8 +4,9 @@ import { useMemo } from "react";
 import dynamic from "next/dynamic";
 import { useStore } from "@/lib/store";
 import { currencySymbol } from "@/lib/defaults";
-import { formatCurrency, monthlyTrend, currentMonthKey, spentByCategory } from "@/lib/calc";
+import { formatCurrency, monthlyTrend, spentByCategory } from "@/lib/calc";
 import { TrendingUp, TrendingDown } from "lucide-react";
+import MonthSwitcher from "@/components/MonthSwitcher";
 
 const TrendArea = dynamic(() => import("@/components/charts/TrendArea"), {
   ssr: false,
@@ -17,11 +18,10 @@ const CategoryBreakdownBar = dynamic(() => import("@/components/charts/CategoryB
 });
 
 export default function ReportsPage() {
-  const { state, hydrated } = useStore();
+  const { state, hydrated, selectedMonth: monthKey } = useStore();
   const symbol = currencySymbol(state.currency);
 
   const trend = useMemo(() => monthlyTrend(state.transactions, 6), [state.transactions]);
-  const monthKey = currentMonthKey();
 
   const categorySpend = useMemo(() => {
     const map = spentByCategory(state.transactions, monthKey);
@@ -37,11 +37,18 @@ export default function ReportsPage() {
   const avgExpense = trend.reduce((s, t) => s + t.expense, 0) / (trend.length || 1);
   const savingsRate = avgIncome > 0 ? ((avgIncome - avgExpense) / avgIncome) * 100 : 0;
 
+  const [year, month] = monthKey.split("-").map(Number);
+  const selectedDate = new Date(year, month - 1, 1);
+  const formattedMonth = selectedDate.toLocaleString("default", { month: "long", year: "numeric" });
+
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-xl sm:text-2xl font-bold">Reports & Trends</h1>
-        <p className="text-[var(--muted)] text-sm">Six-month income vs. expense trend and category breakdown.</p>
+    <div className="space-y-6 animate-fade-in">
+      <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-3">
+        <div>
+          <h1 className="text-xl sm:text-2xl font-bold">Reports & Trends</h1>
+          <p className="text-[var(--muted)] text-sm">Six-month income vs. expense trend and category breakdown.</p>
+        </div>
+        <MonthSwitcher />
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -74,7 +81,7 @@ export default function ReportsPage() {
       </div>
 
       <div className="card p-5">
-        <h2 className="font-semibold mb-2">This Month by Category</h2>
+        <h2 className="font-semibold mb-2">{formattedMonth} by Category</h2>
         {categorySpend.length === 0 ? (
           <p className="text-sm text-[var(--muted)] text-center py-10">No spending logged this month yet.</p>
         ) : (

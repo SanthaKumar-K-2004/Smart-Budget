@@ -197,6 +197,7 @@ export interface DebtPayoffResult {
   totalInterestPaid: number;
   schedule: { month: number; totalBalance: number }[];
   order: string[]; // debt ids in payoff priority order
+  hasNegativeAmortization: boolean;
 }
 
 export function simulateDebtPayoff(
@@ -206,7 +207,16 @@ export function simulateDebtPayoff(
   maxMonths = 600
 ): DebtPayoffResult {
   if (debts.length === 0) {
-    return { monthsToPayoff: 0, totalInterestPaid: 0, schedule: [], order: [] };
+    return { monthsToPayoff: 0, totalInterestPaid: 0, schedule: [], order: [], hasNegativeAmortization: false };
+  }
+
+  let hasNegativeAmortization = false;
+  for (const d of debts) {
+    const monthlyRate = d.apr / 100 / 12;
+    const monthlyInterest = d.balance * monthlyRate;
+    if (monthlyInterest > d.minPayment + extraPerMonth) {
+      hasNegativeAmortization = true;
+    }
   }
 
   const working = debts.map((d) => ({ ...d }));
@@ -254,6 +264,7 @@ export function simulateDebtPayoff(
     totalInterestPaid: Math.round(totalInterest),
     schedule,
     order,
+    hasNegativeAmortization,
   };
 }
 

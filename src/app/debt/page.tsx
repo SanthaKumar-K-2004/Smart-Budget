@@ -6,7 +6,7 @@ import { useStore } from "@/lib/store";
 import { currencySymbol } from "@/lib/defaults";
 import { formatCurrency, simulateDebtPayoff, totalDebts } from "@/lib/calc";
 import { DebtStrategy } from "@/lib/types";
-import { Flame, Snowflake, Clock, PiggyBank } from "lucide-react";
+import { Flame, Snowflake, Clock, PiggyBank, AlertTriangle } from "lucide-react";
 import { motion } from "framer-motion";
 
 const PayoffLineChart = dynamic(() => import("@/components/charts/PayoffLineChart"), {
@@ -83,6 +83,18 @@ export default function DebtPage() {
               <div className="text-xl font-bold mt-1 text-red-500">{formatCurrency(totalBalance, symbol)}</div>
             </div>
           </div>
+
+          {result.hasNegativeAmortization && (
+            <div className="card p-4 border-red-500/20 bg-red-500/[0.02] text-xs text-red-500 flex items-start gap-2 animate-fade-in">
+              <AlertTriangle size={18} className="shrink-0 mt-0.5" />
+              <div>
+                <strong>Warning: Negative Amortization Detected.</strong>
+                <p className="mt-0.5 opacity-90">
+                  One or more of your debts has a monthly interest charge that exceeds its minimum payment plus your extra allocation. The balance will grow indefinitely under this schedule. Increase your monthly payment to clear this debt.
+                </p>
+              </div>
+            </div>
+          )}
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="card p-5">

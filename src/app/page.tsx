@@ -2,12 +2,12 @@
 
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowRight, BarChart3, CheckCircle2, Goal, ShieldCheck, WalletCards, Zap } from "lucide-react";
+import { ArrowRight, BarChart3, Goal, ShieldCheck, WalletCards, Zap } from "lucide-react";
 import BrandLogo from "@/components/BrandLogo";
 import { useBrandTheme, type BrandVariant } from "@/components/BrandThemeProvider";
 import { safeGetItem, safeSetItem } from "@/lib/storage";
 import { INTRO_FIRST_OPEN_KEY } from "@/lib/intro";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 const container = {
   hidden: { opacity: 0 },

@@ -14,6 +14,7 @@ import { RecurringTransaction, Transaction } from "@/lib/types";
 import { motion, AnimatePresence } from "framer-motion";
 import { z } from "zod";
 import DOMPurify from "dompurify";
+import MonthSwitcher from "@/components/MonthSwitcher";
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
@@ -41,6 +42,7 @@ export default function TransactionsPage() {
     addRecurring,
     updateRecurring,
     removeRecurring,
+    selectedMonth: monthKey,
     hydrated,
   } = useStore();
   const symbol = currencySymbol(state.currency);
@@ -87,9 +89,10 @@ export default function TransactionsPage() {
       const matchTags = t.tags?.some((tg) => tg.toLowerCase().includes(search.toLowerCase())) || false;
       const matchesSearch = matchDesc || matchPayee || matchTags;
       const matchesCat = filterCat === "all" || t.categoryId === filterCat;
-      return matchesSearch && matchesCat;
+      const matchesMonth = t.date.startsWith(monthKey);
+      return matchesSearch && matchesCat && matchesMonth;
     });
-  }, [state.transactions, search, filterCat]);
+  }, [state.transactions, search, filterCat, monthKey]);
 
   if (!hydrated) return <div className="skeleton h-64" />;
 
@@ -194,9 +197,12 @@ export default function TransactionsPage() {
           <h1 className="text-xl sm:text-2xl font-bold">Transactions</h1>
           <p className="text-[var(--muted)] text-sm">Log spending and income manually — fully private, no bank linking.</p>
         </div>
-        <button className="btn-secondary text-sm w-fit animate-fade-in" onClick={handleExportCsv}>
-          <Download size={14} /> Export CSV
-        </button>
+        <div className="flex items-center gap-3">
+          <MonthSwitcher />
+          <button className="btn-secondary text-sm w-fit animate-fade-in" onClick={handleExportCsv}>
+            <Download size={14} /> Export CSV
+          </button>
+        </div>
       </div>
 
       {/* Add transaction form */}

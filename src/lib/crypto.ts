@@ -42,7 +42,15 @@ export async function fetchCoinPrices(vsCurrency: string, ids: string[]): Promis
     const idsParam = ids.join(",");
     const url = `/api/crypto?vs_currency=${vsCurrency.toLowerCase()}&ids=${idsParam}`;
 
-    const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
+    const cfg = getApiConfig();
+    const headers: Record<string, string> = {
+      Accept: "application/json",
+    };
+    if (cfg.coinGeckoKey) {
+      headers["X-CoinGecko-Key"] = cfg.coinGeckoKey;
+    }
+
+    const res = await fetch(url, { signal: AbortSignal.timeout(6000), headers });
     if (!res.ok) return null;
     const data = (await res.json()) as CoinPrice[];
     writeCache(cacheKey, data);

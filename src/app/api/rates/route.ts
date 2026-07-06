@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour server-side cache for exchange rates
-const cache = new Map<string, { data: any; timestamp: number }>();
+const cache = new Map<string, { data: unknown; timestamp: number }>();
 
 export async function GET(request: Request) {
   try {
@@ -20,11 +20,19 @@ export async function GET(request: Request) {
     }
 
     const url = `https://api.frankfurter.dev/v1/latest?base=${base}`;
+    
+    // Support client custom key in proxy if available
+    const customKey = request.headers.get("X-Frankfurter-Key");
+    const headers: Record<string, string> = {
+      Accept: "application/json",
+    };
+    if (customKey) {
+      headers["Authorization"] = `Bearer ${customKey}`;
+    }
+
     const res = await fetch(url, {
       signal: AbortSignal.timeout(6000),
-      headers: {
-        Accept: "application/json",
-      },
+      headers,
     });
 
     if (!res.ok) {
